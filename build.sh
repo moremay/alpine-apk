@@ -31,6 +31,8 @@ EOF
     abuild-keygen -an
 fi
 
+grep -q '/root' /etc/apk/repositories || echo '/root/' >> /etc/apk/repositories
+
 cd ~/$pkgname
 
 abuild -F fetch
