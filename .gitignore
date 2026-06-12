@@ -1,4 +1,5 @@
 .*
+*.bak
 x86_64
 pkg
 tmp

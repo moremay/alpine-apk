@@ -2,17 +2,11 @@
 set -e
 
 usage() {
-    echo "Usage: ./build.sh <pkgname>"
+    echo "Usage: ./build.sh <pkgname>..."
 }
 
-pkgname="$1"
-if [ -z "$pkgname" ]; then
+if [ 0 -eq $# ]; then
     usage
-    exit 1
-fi
-
-if [ ! -d ~/$pkgname ]; then
-    echo "~/$pkgname : No such directory"
     exit 1
 fi
 
@@ -22,7 +16,7 @@ fi
 
 if [ ! -f ~/.abuild/abuild.conf ]; then
     mkdir -p ~/.abuild
-    cat > ~/.abuild/abuild.conf << EOF
+    cat >~/.abuild/abuild.conf <<EOF
 PACKAGER="Your Name <you@example.com>"
 MAINTAINER="\$PACKAGER"
 REPODEST=/
@@ -31,11 +25,12 @@ EOF
     abuild-keygen -an
 fi
 
-grep -q '/root' /etc/apk/repositories || echo '/root/' >> /etc/apk/repositories
+grep -q '/root' /etc/apk/repositories || echo '/root/' >>/etc/apk/repositories
 
-cd ~/$pkgname
-
-abuild -F fetch
-abuild -F -r || true
-
-~/update.sh
+for pkgname in "$@"; do
+    cd ~/$pkgname
+    abuild -F fetch
+    abuild -F -r || true
+    ~/update.sh
+    apk add -X /root/ --allow-untrusted $pkgname-dev
+done

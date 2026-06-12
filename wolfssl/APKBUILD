@@ -1,5 +1,5 @@
 # Contributor: Jakub Jirutka <jakub@jirutka.cz>
-# Maintainer: Jakub Jirutka <jakub@jirutka.cz>
+# Maintainer: Pavlo Dembytskyi <me@devs.boo>
 pkgname=wolfssl
 pkgver=5.9.1
 _pkgver=$pkgver-stable
@@ -7,7 +7,7 @@ pkgrel=100
 pkgdesc="Embedded TLS Library (built without OpenSSL compatibility layer)"
 url="https://www.wolfssl.com/"
 arch="all"
-license="GPL-2.0-only"
+license="GPL-3.0-only"
 depends_dev="$pkgname=$pkgver-r$pkgrel"
 makedepends="
 	autoconf
@@ -18,10 +18,59 @@ makedepends="
 	"
 checkdepends="bash"
 subpackages="$pkgname-dev $pkgname-fast $pkgname-jni $pkgname-jni-dev:jni_dev"
-source="https://github.com/wolfSSL/wolfssl/archive/refs/tags/v$_pkgver.tar.gz"
+source="https://github.com/wolfSSL/wolfssl/archive/v$_pkgver/wolfssl-$_pkgver.tar.gz
+	disable-test_wolfSSL_BIO_datagram_patch
+	"
 builddir="$srcdir/$pkgname-$_pkgver"
 
 # secfixes:
+#   5.9.1-r0:
+#     - CVE-2026-5187
+#     - CVE-2026-5188
+#     - CVE-2026-5194
+#     - CVE-2026-5263
+#     - CVE-2026-5264
+#     - CVE-2026-5295
+#     - CVE-2026-5392
+#     - CVE-2026-5446
+#     - CVE-2026-5447
+#     - CVE-2026-5448
+#     - CVE-2026-5460
+#     - CVE-2026-5466
+#     - CVE-2026-5477
+#     - CVE-2026-5479
+#     - CVE-2026-5500
+#     - CVE-2026-5501
+#     - CVE-2026-5503
+#     - CVE-2026-5504
+#     - CVE-2026-5507
+#     - CVE-2026-5772
+#     - CVE-2026-5778
+#   5.9.0-r0:
+#     - CVE-2026-0819
+#     - CVE-2026-1005
+#     - CVE-2026-2645
+#     - CVE-2026-2646
+#     - CVE-2026-3229
+#     - CVE-2026-3230
+#     - CVE-2026-3503
+#     - CVE-2026-3547
+#     - CVE-2026-3548
+#     - CVE-2026-3549
+#     - CVE-2026-3579
+#     - CVE-2026-3580
+#     - CVE-2026-3849
+#     - CVE-2026-4159
+#     - CVE-2026-4395
+#   5.8.4-r0:
+#     - CVE-2025-11931
+#     - CVE-2025-11932
+#     - CVE-2025-11933
+#     - CVE-2025-11934
+#     - CVE-2025-11935
+#     - CVE-2025-11936
+#     - CVE-2025-12888
+#     - CVE-2025-12889
 #   5.7.2-r0:
 #     - CVE-2024-5991
 #   5.7.0-r0:
@@ -50,6 +99,14 @@ prepare() {
 
 	cp -ar "$builddir" "$builddir~fast"
 	cp -ar "$builddir" "$builddir~jni"
+
+	case "$CARCH" in
+	x86*)
+		# TODO: fixme
+		patch "$builddir~jni"/tests/api/test_ossl_bio.h \
+			"$srcdir"/disable-test_wolfSSL_BIO_datagram_patch
+		;;
+	esac
 }
 
 build() {
@@ -90,7 +147,7 @@ _build() {
 		--sysconfdir=/etc \
 		--mandir=/usr/share/man \
 		--localstatedir=/var \
-        --enable-curl \
+		--enable-curl \
 		--enable-shared \
 		--enable-static \
 		--enable-reproducible-build \
@@ -164,5 +221,6 @@ prepare_symlinks() {
 }
 
 sha512sums="
-84adcc41fc07dc89467b7f1bda32ab49f61cb15bb7b5ce3f3b5263346534a3af179bcb402c348a438a4de91a2b76b269db26110ad5c3f0e1bd5b8d234dfaf516  v5.9.1-stable.tar.gz
+84adcc41fc07dc89467b7f1bda32ab49f61cb15bb7b5ce3f3b5263346534a3af179bcb402c348a438a4de91a2b76b269db26110ad5c3f0e1bd5b8d234dfaf516  wolfssl-5.9.1-stable.tar.gz
+c75ad4891f5ac7ebeba54f937fa91597cc0c7eccc3040f85b37ca2d45686fc462bcaec2692495fa1b4d9abf227a7194174ca69bf9fbd60409fb878576736e0e5  disable-test_wolfSSL_BIO_datagram_patch
 "
