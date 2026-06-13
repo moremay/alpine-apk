@@ -1,10 +1,21 @@
 #!/bin/sh
 set -e
 
-if [ 0 -eq $# ]; then
-    echo "Usage: ./build.sh <pkgname>..."
-    exit 1
+# 无参数 → 扫描 /root/ 下所有含 APKBUILD 的目录（排除 *.bak）
+if [ $# -eq 0 ]; then
+    set -- $(find /root -maxdepth 3 -name APKBUILD ! -path '*/.bak/*' ! -path '*.bak/*' \
+        -exec dirname {} \; | sed 's|/root/||' | sort -u)
 fi
+
+if [ $# -eq 0 ]; then
+    echo "No APKBUILD found, nothing to build."
+    exit 0
+fi
+
+# wolfssl 优先构建
+case " $* " in *\ wolfssl\ *)
+  set -- wolfssl $(printf '%s\n' "$@" | grep -vx wolfssl)
+esac
 
 if ! command -v abuild >/dev/null; then
     apk add alpine-sdk
@@ -37,6 +48,14 @@ cp -f ~/.abuild/*.pub /etc/apk/keys/
 
 grep -q '/root' /etc/apk/repositories || echo '/root/' >>/etc/apk/repositories
 
+# 构建前：用当前密钥重签已存在的包索引
+cd ~/x86_64
+if ls *.apk >/dev/null 2>&1; then
+    apk index --allow-untrusted -o APKINDEX.tar.gz *.apk
+    abuild-sign APKINDEX.tar.gz
+fi
+
+# 逐包构建 + 签名
 for pkgname in "$@"; do
     cd ~/$pkgname
     abuild -F fetch

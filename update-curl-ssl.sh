@@ -92,9 +92,9 @@ fetch_upstream_files() {
     echo "    已下载 $count 个文件到 $dest_dir"
 }
 
-# 从 wolfssl APKBUILD 中提取 pkgver
-get_wolfssl_pkgver() {
-    local apkbuild_file="$SCRIPT_DIR/$PKG_WOLFSSL.tmp/APKBUILD"
+# 从 APKBUILD 中提取 pkgver
+get_pkgver() {
+    local apkbuild_file="$1"
     if [ ! -f "$apkbuild_file" ]; then
         echo "[错误] 找不到 wolfssl APKBUILD: $apkbuild_file" >&2
         return 1
@@ -110,7 +110,7 @@ get_wolfssl_pkgver() {
 modify_curl_apkbuild() {
     local file="$SCRIPT_DIR/$PKG_CURL.tmp/APKBUILD"
 
-    local wolfssl_pkgver=$(get_wolfssl_pkgver)
+    local wolfssl_pkgver=$(get_pkgver "$SCRIPT_DIR/$PKG_WOLFSSL.tmp/APKBUILD")
     if [ -z "$wolfssl_pkgver" ]; then
         echo "[错误] 无法从 wolfssl APKBUILD 提取 pkgver" >&2
         return 1
