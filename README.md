@@ -126,7 +126,7 @@ docker run --rm -v "$PWD:/usr/src/repo" alpine sh -c '
 ## 已知限制
 
 - 只构建 `x86_64`（产物目录写死 `x86_64/`）。
-- 构建容器使用 `alpine` 最新版 + edge main/community，与下游镜像的基础镜像版本解耦；
+- 构建容器固定用 `alpine`（latest）的默认仓库，与下游镜像的基础镜像版本（3.24）解耦；
   上游 APKBUILD 结构或 configure 开关变化时需要人工跟进。
 - 仓库不再包含 CI 工作流，构建需本地执行或自建流水线。
 
