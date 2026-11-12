@@ -25,6 +25,8 @@
 ./build-apk.sh              # 默认构建 wolfssl curl libxml2
 ./build-apk.sh curl         # 只构建指定包
 ./build-apk.sh 2>&1 | tee build.log
+
+./check-apk.sh libxml2       # 对照 stable / edge / 本地仓库的版本
 ```
 
 产物：
@@ -42,6 +44,7 @@
 .
 ├── bin/build.sh          # 容器内构建脚本：装 alpine-sdk、管理密钥、逐包 abuild、重签索引
 ├── build-apk.sh          # 宿主机入口
+├── check-apk.sh          # 对照 stable / edge / 本地仓库的包版本
 ├── wolfssl/APKBUILD
 ├── curl/APKBUILD
 ├── libxml2/              # 生成结果：APKBUILD + 全部补丁（提交入库）
@@ -136,17 +139,44 @@ RUN wget -qO /etc/apk/keys/abuild.key.pub http://host:8000/.abuild/abuild.key.pu
 - `x86_64/`、`.abuild/` 不入库，**先在本仓库执行 `./build-apk.sh`** 才有可用的产物和公钥。
 - 需要其它架构时，需同时调整 `bin/build.sh` 里写死的 `~/x86_64` 与 `abuild -a`/构建容器平台。
 
-## 验证
+## 版本对照：判断上游是否已修 CVE
+
+`check-apk.sh` 把同一个包在 **stable main/community**、**edge main/community** 和**本地仓库**里的版本并排列出，
+用来决定「固定到哪个版本的包」：
+
+```bash
+./check-apk.sh libxml2 curl
+```
+
+```
+Alpine 3.24.4（stable: v3.24 + edge）
+本地仓库 = /usr/src/repo（本仓库 ./build-apk.sh 产物）
+libxml2
+  2.13.9-r2        v3.24/main
+  -                v3.24/community
+  2.13.9-r2        edge/main
+  -                edge/community
+  2.13.9-r100      本地仓库
+  => 本地 2.13.9-r100 高于上游最新 2.13.9-r2
+```
+
+按结果决定：
+
+| 对照结果 | 处理方式 |
+| --- | --- |
+| stable 已升到修复版本 | 改 Dockerfile 里的固定版本即可，本地包可退役 |
+| 只有 edge 升了 | 固定到 edge 的版本（新版可能连带其它改动），或像 `libxml2/` 一样自行 backport |
+| stable 与 edge 都没修 | 只能自行 backport，本仓库的 `update-*.sh` + backport 目录即为此准备 |
+| 本地版本高于上游 | 本地补丁生效中，Dockerfile 继续固定 `pkg=ver-r100` |
+
+`libxml2` 就是第三种情况：CVE-2026-86137～86144 上游要到 2.15.4 才修，stable/edge 都停在 2.13.9-r2，
+所以本仓库维护 `2.13.9-r100`，并使用方在 Dockerfile 里写死 `libxml2=2.13.9-r100`。
+
+## 验证产物
 
 ```bash
 # 直接检查产物元信息
 for f in x86_64/*.apk; do tar -xzOf "$f" .PKGINFO | head -5; done
-
-# 以本地仓库方式查询，验证包与索引可用
-docker run --rm -v "$PWD:/usr/src/repo" alpine sh -c '
-  cp /usr/src/repo/.abuild/*.pub /etc/apk/keys/
-  echo /usr/src/repo/ >> /etc/apk/repositories
-  apk update && apk query --all-matches libxml2 --fields version,repositories'
 ```
 
 ## 已知限制
