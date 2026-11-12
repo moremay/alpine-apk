@@ -1,9 +1,10 @@
 # alpine-apk
 
-为 [docker-php](https://github.com/moremay/docker-php) 构建**版本固定 + 安全补丁**的 Alpine APK。
+构建**版本固定 + 安全补丁**的 Alpine APK，供任意以 Alpine 为基础的项目（镜像构建、CI、
+嵌入式 rootfs 等）直接引用。
 
-上游 Alpine 仓库里的包不保证满足镜像需求（版本漂移、CVE 未 backport、ABI/so 版本变化），
-这个仓库把这些包固定下来，以 `pkgrel=100` 重新打包，供 Dockerfile 用 `pkg=ver-r100` 精确安装。
+上游 Alpine 仓库里的包不保证满足需求（版本漂移、CVE 未 backport、ABI/so 版本变化），
+这个仓库把这些包固定下来，以 `pkgrel=100` 重新打包，使用方可以用 `pkg=ver-r100` 精确安装。
 
 ## 包含的包
 
@@ -91,24 +92,49 @@
 
 ## 签名
 
-- 首次构建自动执行 `abuild-keygen -an` 生成 `.abuild/*.rsa`，并把公钥复制进构建容器的
+- 首次构建自动执行 `abuild-keygen -an` 生成 `.abuild/abuild.key{,.pub}`，并把公钥复制进构建容器的
   `/etc/apk/keys/`；
 - 每次构建完成后用同一密钥重签 `x86_64/APKINDEX.tar.gz`；
-- 密钥不入库。使用方（docker-php）需要 `.abuild/*.pub` 才能信任这些包。
+- 密钥不入库。使用方需要 `.abuild/*.pub` 才能信任这些包，见下一节。
 
-## 与 docker-php 的关系
+## 在其它项目中引用
 
-本仓库以 **git submodule** 形式挂在 docker-php 的 `apk/` 路径下：
+产物就是一个普通的 Alpine 本地仓库（`x86_64/*.apk` + 重签过的 `APKINDEX.tar.gz`），
+任何 Alpine 项目都能用，引入方式不限：
 
-```bash
-git clone --recurse-submodules git@github.com:moremay/docker-php.git
-# 已 clone 的仓库：
-git submodule update --init
+**1. 打包进镜像 / rootfs（离线）**
+
+```dockerfile
+FROM alpine:3.24
+
+COPY x86_64 /usr/src/repo/x86_64
+COPY .abuild/*.pub /etc/apk/keys/
+
+RUN echo '/usr/src/repo/' >> /etc/apk/repositories && \
+    apk add --no-cache libxml2=2.13.9-r100 libxml2-dev=2.13.9-r100
 ```
 
-Dockerfile 通过 `COPY apk/x86_64 /usr/src/repo/x86_64` 和 `COPY apk/.abuild/*.pub /etc/apk/keys/`
-使用这些包。注意 `x86_64/` 不入库，**必须先在本仓库构建**，否则 docker-php 镜像构建会在
-COPY 阶段失败。
+**2. 通过 HTTP 提供仓库**
+
+```bash
+python3 -m http.server -d . 8000        # 或任何静态文件服务
+```
+
+```dockerfile
+RUN wget -qO /etc/apk/keys/abuild.key.pub http://host:8000/.abuild/abuild.key.pub && \
+    echo 'http://host:8000/' >> /etc/apk/repositories && \
+    apk add --no-cache libxml2=2.13.9-r100
+```
+
+**3. 作为源码仓库挂在项目里**（submodule / 子目录 / 构建前 `git clone` 均可），
+构建时再把 `x86_64/` 与 `.abuild/*.pub` 拷入构建上下文。
+
+注意：
+
+- 版本号带 `-r100`，与官方仓库同版本号（如 `2.13.9-r2`）共存时不会互相覆盖；
+  建议始终写完整版本（`pkg=ver-r100`），避免 `apk upgrade` 漂移到上游包。
+- `x86_64/`、`.abuild/` 不入库，**先在本仓库执行 `./build-apk.sh`** 才有可用的产物和公钥。
+- 需要其它架构时，需同时调整 `bin/build.sh` 里写死的 `~/x86_64` 与 `abuild -a`/构建容器平台。
 
 ## 验证
 
@@ -116,7 +142,7 @@ COPY 阶段失败。
 # 直接检查产物元信息
 for f in x86_64/*.apk; do tar -xzOf "$f" .PKGINFO | head -5; done
 
-# 在 alpine 容器里以本地仓库方式查询（等价于 docker-php 的 ./check-apk.sh）
+# 以本地仓库方式查询，验证包与索引可用
 docker run --rm -v "$PWD:/usr/src/repo" alpine sh -c '
   cp /usr/src/repo/.abuild/*.pub /etc/apk/keys/
   echo /usr/src/repo/ >> /etc/apk/repositories
@@ -126,9 +152,9 @@ docker run --rm -v "$PWD:/usr/src/repo" alpine sh -c '
 ## 已知限制
 
 - 只构建 `x86_64`（产物目录写死 `x86_64/`）。
-- 构建容器固定用 `alpine`（latest）的默认仓库，与下游镜像的基础镜像版本（3.24）解耦；
+- 构建容器固定用 `alpine`（latest）的默认仓库，与使用方的基础镜像版本解耦；
   上游 APKBUILD 结构或 configure 开关变化时需要人工跟进。
-- 仓库不再包含 CI 工作流，构建需本地执行或自建流水线。
+- 仓库不含 CI 工作流，构建需本地执行或自建流水线。
 
 ## License
 
