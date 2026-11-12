@@ -73,7 +73,10 @@ fetch_upstream_files() {
 
     echo "从 GitLab 获取 $pkg 上游文件列表 ($repo_path/)..."
     local files
-    files=$(list_upstream_files "$repo_path")
+    if ! files=$(list_upstream_files "$repo_path"); then
+        echo "[错误] 获取 $pkg 上游文件列表失败" >&2
+        return 1
+    fi
 
     # 使用 <<< 避免管道创建子 shell，确保错误能正常返回
     local count=0
@@ -86,8 +89,17 @@ fetch_upstream_files() {
             echo "[错误] 下载失败: $raw_url" >&2
             return 1
         fi
+        if [ ! -s "$dest_file" ]; then
+            echo "[错误] 下载内容为空: $raw_url" >&2
+            return 1
+        fi
         count=$((count + 1))
     done <<<"$files"
+
+    if [ ! -s "$dest_dir/APKBUILD" ]; then
+        echo "[错误] 上游 APKBUILD 缺失" >&2
+        return 1
+    fi
 
     echo "    已下载 $count 个文件到 $dest_dir"
 }
@@ -162,17 +174,25 @@ process_pkg() {
         rm -rf "$tmp_dir"
     fi
 
-    fetch_upstream_files "$pkg" "$repo_path" "$tmp_dir"
+    fetch_upstream_files "$pkg" "$repo_path" "$tmp_dir" || {
+        echo "[错误] 拉取 $pkg 上游文件失败" >&2
+        return 1
+    }
 
     echo "应用修改 ..."
     case "$pkg" in
     "$PKG_CURL")
-        modify_curl_apkbuild
+        modify_curl_apkbuild || return 1
         ;;
     "$PKG_WOLFSSL")
-        modify_wolfssl_apkbuild
+        modify_wolfssl_apkbuild || return 1
         ;;
     esac
+
+    if ! grep -q '^pkgrel=100$' "$tmp_dir/APKBUILD"; then
+        echo "[错误] pkgrel 未改成 100: $tmp_dir/APKBUILD" >&2
+        return 1
+    fi
 
     echo "    处理完毕 $tmp_dir"
 }

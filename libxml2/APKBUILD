@@ -1,0 +1,156 @@
+# Contributor: Carlo Landmeter <clandmeter@alpinelinux.org>
+# Maintainer: Carlo Landmeter <clandmeter@alpinelinux.org>
+pkgname=libxml2
+pkgver=2.13.9
+pkgrel=100
+pkgdesc="XML parsing library, version 2"
+url="https://gitlab.gnome.org/GNOME/libxml2"
+arch="all"
+license="MIT"
+depends_dev="zlib-dev xz-dev $pkgname-utils=$pkgver-r$pkgrel"
+checkdepends="perl tar"
+makedepends_host="$depends_dev"
+subpackages="$pkgname-dbg $pkgname-doc $pkgname-static $pkgname-dev $pkgname-utils"
+if [ -z "$BOOTSTRAP" ]; then
+	makedepends_build="$makedepends_build python3-dev"
+	subpackages="$subpackages py3-$pkgname-pyc py3-$pkgname:_py3"
+	_py_configure="--with-python=/usr/bin/python3"
+else
+	_py_configure="--with-python=no"
+fi
+source="https://download.gnome.org/sources/libxml2/${pkgver%.*}/libxml2-$pkgver.tar.xz
+	CVE-2026-6732.patch
+	CVE-2026-6732-test.patch
+	CVE-2026-86137.patch
+	CVE-2026-86138.patch
+	CVE-2026-86139.patch
+	CVE-2026-86140.patch
+	CVE-2026-86141.patch
+	CVE-2026-86142.patch
+	CVE-2026-86143.patch
+	CVE-2026-86144.patch
+	"
+
+# secfixes:
+#   2.13.9-r100:
+#     - CVE-2026-86137
+#     - CVE-2026-86138
+#     - CVE-2026-86139
+#     - CVE-2026-86140
+#     - CVE-2026-86141
+#     - CVE-2026-86142
+#     - CVE-2026-86143
+#     - CVE-2026-86144
+#   2.13.9-r2:
+#     - CVE-2026-6732
+#   2.13.9-r0:
+#     - CVE-2025-49794
+#     - CVE-2025-49796
+#     - CVE-2025-49795
+#     - CVE-2025-6170
+#     - CVE-2025-6021
+#   2.13.8-r0:
+#     - CVE-2025-32414
+#     - CVE-2025-32415
+#   2.13.6-r0:
+#     - CVE-2025-24928
+#     - CVE-2024-56171
+#     - CVE-2025-27113
+#   2.12.7-r0:
+#     - CVE-2024-34459
+#   2.12.5-r0:
+#     - CVE-2024-25062
+#   2.10.4-r0:
+#     - CVE-2023-28484
+#     - CVE-2023-29469
+#   2.10.3-r0:
+#     - CVE-2022-40303
+#     - CVE-2022-40304
+#   2.10.0-r0:
+#     - CVE-2022-2309
+#   2.9.14-r0:
+#     - CVE-2022-29824
+#   2.9.13-r0:
+#     - CVE-2022-23308
+#   2.9.11-r0:
+#     - CVE-2016-3709
+#     - CVE-2021-3517
+#     - CVE-2021-3518
+#     - CVE-2021-3537
+#     - CVE-2021-3541
+#   2.9.10-r5:
+#     - CVE-2020-24977
+#   2.9.10-r4:
+#     - CVE-2019-20388
+#   2.9.8-r3:
+#     - CVE-2020-7595
+#   2.9.8-r1:
+#     - CVE-2018-9251
+#     - CVE-2018-14404
+#     - CVE-2018-14567
+#   2.9.4-r4:
+#     - CVE-2017-5969
+#   2.9.4-r2:
+#     - CVE-2016-9318
+#   2.9.4-r1:
+#     - CVE-2016-5131
+
+prepare() {
+	default_prepare
+
+	# We don't build libxml2 with icu.
+	rm test/icu_parse_test.xml
+}
+
+build() {
+	./configure \
+		--build=$CBUILD \
+		--host=$CHOST \
+		--prefix=/usr \
+		--sysconfdir=/etc \
+		--mandir=/usr/share/man \
+		--infodir=/usr/share/info \
+		--enable-static \
+		--with-legacy \
+		--with-lzma \
+		--with-zlib \
+		$_py_configure
+	make
+}
+
+check() {
+	rm -f test/ebcdic_566012.xml
+	make runtests
+}
+
+package() {
+	make -j1 DESTDIR="$pkgdir" install
+}
+
+_py3() {
+	depends="python3"
+	pkgdesc="$pkgname python3 bindings"
+
+	amove usr/lib/python3*
+}
+
+utils() {
+	pkgdesc="XML utilities"
+	replaces="libxml2"
+
+	amove usr/bin
+}
+
+sha512sums="
+62d4813860124c969f204aaf33b497105dbc32a6c5655f5a86168743660e10987d687d7e5e7ee49fdfdeb8f6ad9fa4503f81fcce2e4d459094895f02436d1b13  libxml2-2.13.9.tar.xz
+a54eca0b69fb49c9894684069b0e68dd80f002977c59249bee6d1a168391179e9815dfbe49a9cce3de28ca4a1bdfcac8a691daa240dd70a0206d24d32f6e84cb  CVE-2026-6732.patch
+9117a6a060d9c760ae4aa88c33131b02b4677a6703fe02ea36a474035c901d5da778a4d98402a87187410e9bcfe9819d382f9df4e6fe42ff3cf33acc88ba28a9  CVE-2026-6732-test.patch
+d85f3deb24c83fd66628034d5789519f69fc8a2d9858450c2f71be2c801a8b7c30bf3b7c505c9f98ab74726dac4b89e6a97df52f942dea630f952cab10ac1e09  CVE-2026-86137.patch
+ce46dbc2d14ff8d16d3d30bfe2aa2d67c629bc76e5d3a8254e34862cbfc6fa7eb6092450ce6306ff9c230e22f42e305b7296de6f52f2ad49895b63820dbc8832  CVE-2026-86138.patch
+2707d44480c26e9b6603cd56d044d9461cedc2bc28f9d88d4bcf4174c64c2a6f724a981d41d36f7afc0089db050cfaa8823b187b7d31102c8800d32e23277bc1  CVE-2026-86139.patch
+1da3f72b71752958c9afe3d033151b9f025e89718e55a192a67be2c6f11f6f9f1fded498183220f3f25feefc740f17d7948a3e2d30a131fd087278ea6db5a6e1  CVE-2026-86140.patch
+62f9f1d784192925bdd149697b1cf8ec7accf24deedaf7fcdc4bd3a6e55ebcc132dd79709ad8fd4df75cb08b0aaa22d1477a6206374b3333812b31f4f5d12b8f  CVE-2026-86141.patch
+4b8fc96f3c770ddf2e3f3c1a5f354a991bda98df7c1df0ce78edd865fb647476f703e177c6eb91ef33391c6cad7c626cd9bbbeedfbe300868625abf9536048be  CVE-2026-86142.patch
+bebf1e6112585600a43723631a3c32ff42138b85f8a659209c0044f1ee1283b9fc96fa151588c345c519c5c6e9d7aae41f9f4db6fc43158fee09e99e10baeaa4  CVE-2026-86143.patch
+62019d4eeba5864013009a19fa6bb29653190f01d36c69b709cc373fe877f285abe71218e0643e4c5d6c67bc06b6991b99ea3439fcb6fb2584d664a9d3c6435a  CVE-2026-86144.patch
+"
