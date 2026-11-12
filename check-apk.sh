@@ -1,11 +1,13 @@
 #!/bin/bash
 #
-# 对照某个包在「稳定仓库（Alpine 3.x main/community）」「edge」「本地仓库」中的版本，
+# 对照某个包在「stable（Alpine 3.x）」「edge」「本地仓库」中的版本，
 # 用于判断上游是否已经修掉某个 CVE：
-#   - edge 已升到修复版本、稳定仓库还没升  → 要么固定到 edge 的版本，要么自己 backport（见 libxml2/）
-#   - 稳定仓库已升                          → 直接把 Dockerfile 里的固定版本改成新版本
+#   - edge 已升到修复版本、stable 还没升  → 要么固定到 edge 的版本，要么自己 backport（见 libxml2/）
+#   - stable 已升                          → 直接把 Dockerfile 里的固定版本改成新版本
 #   - 三处都一样                            → 本地包没有额外价值，可考虑移除
 #
+# 每个通道只显示一行（main/community 取较高者）；版本仅在来自 community 时标注
+# "(community)"，便于判断该包能否直接从 defaults 的 main 获得。
 
 set -e
 
@@ -46,27 +48,34 @@ parsed=$(awk '
   /^    [^ ]+$/      { print pkg "\t" $1 "\t" ver }
 ' "$policy_tmp")
 
-repo_label() {
-  case "$1" in
-    /usr/src/repo*)                 echo "本地仓库" ;;
-    *"/edge/main"*)                 echo "edge/main" ;;
-    *"/edge/community"*)            echo "edge/community" ;;
-    *"/${stable}/main"*)            echo "${stable}/main" ;;
-    *"/${stable}/community"*)       echo "${stable}/community" ;;
-    *)                              echo "$1" ;;
-  esac
+ver_of() { # ver_of <pkg> <repo 前缀>
+  printf '%s\n' "$parsed" | awk -F'\t' -v p="$1" -v r="$2" \
+    '$1 == p && (index($2, r) == 1 || substr($2, length($2) - length(r) + 1) == r) { print $3 }' \
+    | sort -V | tail -1
 }
 
-ver_of() { # ver_of <pkg> <repo-label>
-  printf '%s\n' "$parsed" | awk -F'\t' -v p="$1" -v r="$2" '$1 == p && $3 != "" {
-    label = $2
-    if (label ~ /^\/usr\/src\/repo/) label = "本地仓库"
-    else if (label ~ /\/edge\/main/) label = "edge/main"
-    else if (label ~ /\/edge\/community/) label = "edge/community"
-    else if (label ~ /\/v[^\/]*\/main/) { n = split(label, a, "/"); label = a[n-1] "/main" }
-    else if (label ~ /\/v[^\/]*\/community/) { n = split(label, a, "/"); label = a[n-1] "/community" }
-    if (label == r) print $3
-  }' | sort -V | tail -1
+# channel_ver <pkg> <stable|edge|本地仓库> → 打印 "版本" 或 "版本 (community)"
+channel_ver() {
+  local pkg="$1" chan="$2" main_v comm_v
+  case "$chan" in
+    stable) main_v=$(ver_of "$pkg" "/${stable}/main"); comm_v=$(ver_of "$pkg" "/${stable}/community") ;;
+    edge)   main_v=$(ver_of "$pkg" "/edge/main");       comm_v=$(ver_of "$pkg" "/edge/community") ;;
+    本地仓库) main_v=$(ver_of "$pkg" "/usr/src/repo");  comm_v="" ;;
+    *) return 0 ;;
+  esac
+  if [ -z "$main_v" ]; then
+    [ -n "$comm_v" ] && echo "$comm_v (community)"
+    return 0
+  fi
+  if [ -n "$comm_v" ] && [ "$(printf '%s\n%s\n' "$main_v" "$comm_v" | sort -V | tail -1)" = "$comm_v" ]; then
+    echo "$comm_v (community)"
+  else
+    echo "$main_v"
+  fi
+}
+
+plain_ver() { # 去掉 " (community)" 后缀
+  printf '%s' "${1% (community)}"
 }
 
 max_ver() { sort -V | tail -1; }
@@ -77,27 +86,30 @@ echo "=========================="
 
 for pkg in "$@"; do
   echo "$pkg"
-  local_ver=""
-  for label in "${stable}/main" "${stable}/community" edge/main edge/community 本地仓库; do
-    ver=$(ver_of "$pkg" "$label")
-    [ "$label" = "本地仓库" ] && local_ver="$ver"
-    printf '  %-16s %s\n' "${ver:--}" "$label"
-  done
+  stable_v=$(channel_ver "$pkg" stable)
+  edge_v=$(channel_ver "$pkg" edge)
+  local_v=$(channel_ver "$pkg" 本地仓库)
 
-  upstream=$(printf '%s\n' "$parsed" | awk -F'\t' -v p="$pkg" '$1 == p && $2 !~ /^\/usr\/src\/repo/ { print $3 }' | max_ver)
-  if [ -n "$local_ver" ] && [ -n "$upstream" ]; then
-    cmp=$(docker exec tmp-alpine apk version -t "$local_ver" "$upstream")
+  printf '  %-24s %s\n' "${stable_v:--}" "stable (${stable})"
+  printf '  %-24s %s\n' "${edge_v:--}" "edge"
+  printf '  %-24s %s\n' "${local_v:--}" "本地仓库"
+
+  upstream=$(printf '%s\n%s\n' "$(plain_ver "$stable_v")" "$(plain_ver "$edge_v")" | grep -v '^$' | max_ver)
+  local_plain=$(plain_ver "$local_v")
+
+  if [ -n "$local_plain" ] && [ -n "$upstream" ]; then
+    cmp=$(docker exec tmp-alpine apk version -t "$local_plain" "$upstream")
     case "$cmp" in
-      '>') echo "  => 本地 $local_ver 高于上游最新 $upstream" ;;
-      '=') echo "  => 本地 $local_ver 与上游最新一致" ;;
-      *)   echo "  => 本地 $local_ver 低于上游最新 $upstream" ;;
+      '>') echo "  => 本地 $local_plain 高于上游最新 $upstream" ;;
+      '=') echo "  => 本地 $local_plain 与上游最新一致" ;;
+      *)   echo "  => 本地 $local_plain 低于上游最新 $upstream" ;;
     esac
-  elif [ -z "$local_ver" ] && [ -z "$upstream" ]; then
-    echo "  => 四个仓库中均未找到该包"
-  elif [ -z "$local_ver" ]; then
+  elif [ -z "$local_plain" ] && [ -z "$upstream" ]; then
+    echo "  => 三处均未找到该包"
+  elif [ -z "$local_plain" ]; then
     echo "  => 本地无该包（上游最新 $upstream）"
-  elif [ -z "$upstream" ]; then
-    echo "  => 仅本地有该包（$local_ver）"
+  else
+    echo "  => 仅本地有该包（$local_plain）"
   fi
   echo "=========================="
 done
