@@ -141,23 +141,30 @@ RUN wget -qO /etc/apk/keys/abuild.key.pub http://host:8000/.abuild/abuild.key.pu
 
 ## 版本对照：判断上游是否已修 CVE
 
-`check-apk.sh` 把同一个包在 **stable main/community**、**edge main/community** 和**本地仓库**里的版本并排列出，
-用来决定「固定到哪个版本的包」：
+`check-apk.sh` 把同一个包在 **stable（Alpine 3.x）**、**edge** 和**本地仓库**里的版本并排列出，
+用来决定「固定到哪个版本的包」。每个通道只显示一行（main/community 取较高者），
+版本仅来自 community 时标注 `(community)`：
 
 ```bash
-./check-apk.sh libxml2 curl
+./check-apk.sh libxml2 wolfssl
 ```
 
 ```
 Alpine 3.24.4（stable: v3.24 + edge）
 本地仓库 = /usr/src/repo（本仓库 ./build-apk.sh 产物）
+==========================
 libxml2
-  2.13.9-r2        v3.24/main
-  -                v3.24/community
-  2.13.9-r2        edge/main
-  -                edge/community
-  2.13.9-r100      本地仓库
+  2.13.9-r2                stable (v3.24)
+  2.13.9-r2                edge
+  2.13.9-r100              本地仓库
   => 本地 2.13.9-r100 高于上游最新 2.13.9-r2
+==========================
+wolfssl
+  5.9.4-r0 (community)     stable (v3.24)
+  5.9.4-r0 (community)     edge
+  5.9.4-r100               本地仓库
+  => 本地 5.9.4-r100 高于上游最新 5.9.4-r0
+==========================
 ```
 
 按结果决定：
