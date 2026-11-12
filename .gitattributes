@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# 补丁/校验和内容必须逐字节保持原样
+*.patch -text
