@@ -26,7 +26,7 @@
 ./build-apk.sh curl         # 只构建指定包
 ./build-apk.sh 2>&1 | tee build.log
 
-./check-apk.sh libxml2       # 对照 stable / edge / 本地仓库的版本
+./check-apk.sh libxml2       # 对照 stable / edge / 本地仓库 / 基础镜像已装版本
 ```
 
 产物：
@@ -44,7 +44,7 @@
 .
 ├── bin/build.sh          # 容器内构建脚本：装 alpine-sdk、管理密钥、逐包 abuild、重签索引
 ├── build-apk.sh          # 宿主机入口
-├── check-apk.sh          # 对照 stable / edge / 本地仓库的包版本
+├── check-apk.sh          # 对照 stable / edge / 本地仓库 / 基础镜像的包版本
 ├── wolfssl/APKBUILD
 ├── curl/APKBUILD
 ├── libxml2/              # 生成结果：APKBUILD + 全部补丁（提交入库）
@@ -141,43 +141,73 @@ RUN wget -qO /etc/apk/keys/abuild.key.pub http://host:8000/.abuild/abuild.key.pu
 
 ## 版本对照：判断上游是否已修 CVE
 
-`check-apk.sh` 把同一个包在 **stable（Alpine 3.x）**、**edge** 和**本地仓库**里的版本并排列出，
+`check-apk.sh` 把同一个包在 **stable（Alpine 3.x）**、**edge**、**本地仓库**里的版本并排列出，
 用来决定「固定到哪个版本的包」。每个通道只显示一行（main/community 取较高者），
-版本仅来自 community 时标注 `(community)`：
+版本仅来自 community 时标注 `(community)`。
+
+还会列出**基础镜像**（默认取 `../Dockerfile.template` 里 builder 阶段的镜像，如 `alpine:3.24`，
+可用 `BASE_IMAGE=<镜像:tag>` 覆盖）中该包**已安装**的版本——因为 `apk add <pkg>` 不会自动升级
+已安装的包：仓库里已是新版、镜像自带旧版时，仍必须显式 pin 才会升级。
 
 ```bash
 ./check-apk.sh libxml2 wolfssl
 ```
 
+国内网络下 `dl-cdn.alpinelinux.org` 常因 DNS 解析失败而 `apk update` 报错（脚本此时会明确报错
+并提示镜像源，不再静默退出）。加 `-m` 改用 `mirrors.nju.edu.cn`，或用 `MIRRORS=<镜像站>` 指定：
+
+```bash
+./check-apk.sh -m libxml2 wolfssl
+MIRRORS=mirrors.aliyun.com ./check-apk.sh libxml2
+```
+
 ```
 Alpine 3.24.4（stable: v3.24 + edge）
+基础镜像 = alpine:3.24（apk add 就执行在这个镜像上）
 本地仓库 = /usr/src/repo（本仓库 ./build-apk.sh 产物）
 ==========================
 libxml2
   2.13.9-r2                stable (v3.24)
-  2.13.9-r2                edge
+  2.13.9-r3                edge
   2.13.9-r100              本地仓库
-  => 本地 2.13.9-r100 高于上游最新 2.13.9-r2
+  -                        基础镜像 (alpine:3.24)
+  => pinning local libxml2=2.13.9-r100
 ==========================
 wolfssl
   5.9.4-r0 (community)     stable (v3.24)
   5.9.4-r0 (community)     edge
   5.9.4-r100               本地仓库
-  => 本地 5.9.4-r100 高于上游最新 5.9.4-r0
+  -                        基础镜像 (alpine:3.24)
+  => pinning local wolfssl=5.9.4-r100
+==========================
+zlib
+  1.4-r0                   stable (v3.24)
+  1.4-r0                   edge
+  -                        本地仓库
+  1.3.2-r1                 基础镜像 (alpine:3.24)
+  => pinning stable zlib=1.4-r0（基础镜像只有 1.3.2-r1，不 pin 不会升级）
 ==========================
 ```
 
-按结果决定：
+结论行先取「三个仓库通道的最高版本」，再与基础镜像已装版本比较，直接对应 Dockerfile 里要不要 pin：
 
-| 对照结果 | 处理方式 |
+| 结论 | 含义 |
 | --- | --- |
-| stable 已升到修复版本 | 改 Dockerfile 里的固定版本即可，本地包可退役 |
-| 只有 edge 升了 | 固定到 edge 的版本（新版可能连带其它改动），或像 `libxml2/` 一样自行 backport |
-| stable 与 edge 都没修 | 只能自行 backport，本仓库的 `update-*.sh` + backport 目录即为此准备 |
-| 本地版本高于上游 | 本地补丁生效中，Dockerfile 继续固定 `pkg=ver-r100` |
+| `=> 无需pinning` | 镜像里没装该包（`apk add` 会直接装 stable 最新版），或镜像自带的版本已不低于最高版 |
+| `=> pinning stable <pkg>=<ver>` | 最高版在 stable，但镜像里是更旧的版本，不显式 pin 就不会升级（如 `zlib`） |
+| `=> pinning edge <pkg>=<ver>` | 需固定到 edge 的版本（新版可能连带其它改动），或像 `libxml2/` 一样自行 backport |
+| `=> pinning local <pkg>=<ver>` | 需固定到本地仓库的包（`pkgrel=100`，含 backport） |
+| `=> 三处均未找到该包` | 包不在 stable/edge/本地仓库中，检查包名 |
 
-`libxml2` 就是第三种情况：CVE-2026-86137～86144 上游要到 2.15.4 才修，stable/edge 都停在 2.13.9-r2，
-所以本仓库维护 `2.13.9-r100`，并使用方在 Dockerfile 里写死 `libxml2=2.13.9-r100`。
+比较的是**完整版本号（含 `-rN`）**，`pkgrel` 不忽略：`2.13.9-r100`（本地）> `2.13.9-r3`（edge）> `2.13.9-r2`（stable）。仅当版本号完全相同时才按 `stable > edge > local` 取（官方补丁优先于本地 backport）。
+
+`libxml2` 就是需要 `pinning local` 的情况：CVE-2026-86137～86144 上游要到 2.15.4 才修，
+stable/edge 都还停在 2.13.9，所以本仓库维护 `2.13.9-r100`，使用方在 Dockerfile 里写死
+`libxml2=2.13.9-r100`。
+
+`zlib` 则是 `pinning stable` 的情况：stable/edge 已经是 `1.4-r0`，但 `alpine:3.24` 基础镜像自带
+`1.3.2-r1`，只写 `apk add zlib` 会保持旧版不升级，所以 Dockerfile 里保留 `zlib=~1.4-r0`
+（同理 `musl-utils` / `libcrypto3` / `libssl3` 固定到 edge 版本才会真正升级）。
 
 ## 验证产物
 
